@@ -122,87 +122,61 @@
             
             const horses = [];
             
-            // 複数のセレクタパターンを試行
+            // テーブル行を取得
             let rows = doc.querySelectorAll('.Shutuba_Table tbody tr');
-            console.log('Shutuba_Table rows:', rows.length);
-            
-            if (rows.length === 0) {
-                rows = doc.querySelectorAll('table.race_table_01 tbody tr');
-                console.log('race_table_01 rows:', rows.length);
-            }
-            
-            if (rows.length === 0) {
-                rows = doc.querySelectorAll('.HorseList tbody tr');
-                console.log('HorseList rows:', rows.length);
-            }
             
             if (rows.length === 0) {
                 rows = doc.querySelectorAll('table tbody tr');
-                console.log('Generic table rows:', rows.length);
             }
+            
+            console.log(`Found ${rows.length} rows`);
             
             rows.forEach((row, idx) => {
                 try {
-                    // パターン1: .Umaban
-                    let numElem = row.querySelector('.Umaban');
+                    const cells = Array.from(row.querySelectorAll('td'));
+                    if (cells.length < 5) return; // データ不足
                     
-                    // パターン2: .Waku (枠番と馬番が一緒にある場合)
-                    if (!numElem) {
-                        numElem = row.querySelector('.Waku');
-                    }
-                    
-                    // パターン3: 最初のtdから数字を探す
-                    if (!numElem) {
-                        const firstTd = row.querySelector('td');
-                        if (firstTd && /^\d+$/.test(firstTd.textContent.trim())) {
-                            numElem = firstTd;
-                        }
-                    }
-                    
-                    if (!numElem) {
-                        console.log(`Row ${idx}: No number element found`);
-                        return;
-                    }
-                    
-                    const numText = numElem.textContent.trim();
-                    const num = parseInt(numText.match(/\d+/)?.[0]);
-                    
-                    if (!num || num < 1 || num > 30) {
-                        console.log(`Row ${idx}: Invalid number ${num}`);
-                        return;
-                    }
-                    
-                    // 馬名を探す
-                    let nameElem = row.querySelector('a[href*="/horse/"]');
-                    if (!nameElem) {
-                        nameElem = row.querySelector('.Horse_Name a, .HorseName a');
-                    }
-                    
-                    const name = nameElem?.textContent?.trim().replace(/\s+/g, '') || `${num}番`;
-                    
-                    // 騎手を探す
-                    let jockeyElem = row.querySelector('a[href*="/jockey/"]');
-                    if (!jockeyElem) {
-                        jockeyElem = row.querySelector('.Jockey a');
-                    }
-                    
-                    const jockey = jockeyElem?.textContent?.trim().replace(/\s+/g, '') || '未定';
-                    
-                    // オッズを探す
-                    let odds = 10.0;
-                    const cells = row.querySelectorAll('td');
-                    cells.forEach(cell => {
-                        const t = cell.textContent.trim();
-                        // オッズは数字.数字の形式
-                        if (/^\d+\.\d+$/.test(t)) {
-                            const o = parseFloat(t);
-                            if (o >= 1.0 && o <= 999.0) {
-                                odds = o;
+                    // 馬番を探す（最初の数字のセル）
+                    let num = null;
+                    for (let i = 0; i < Math.min(3, cells.length); i++) {
+                        const text = cells[i].textContent.trim();
+                        const match = text.match(/^(\d+)$/);
+                        if (match) {
+                            const n = parseInt(match[1]);
+                            if (n >= 1 && n <= 30) {
+                                num = n;
+                                break;
                             }
                         }
-                    });
+                    }
                     
-                    console.log(`Parsed horse ${num}: ${name}, ${jockey}, ${odds}`);
+                    if (!num) return;
+                    
+                    // 馬名
+                    const nameElem = row.querySelector('a[href*="/horse/"]');
+                    const name = nameElem?.textContent?.trim() || `${num}番`;
+                    
+                    // 騎手
+                    const jockeyElem = row.querySelector('a[href*="/jockey/"]');
+                    const jockey = jockeyElem?.textContent?.trim() || '未定';
+                    
+                    // オッズ（2桁の数字.数字の形式、ただし57.0は除外）
+                    let odds = 10.0;
+                    const oddsPattern = /^(\d{1,3}\.\d)$/;
+                    
+                    for (const cell of cells) {
+                        const text = cell.textContent.trim();
+                        if (oddsPattern.test(text)) {
+                            const o = parseFloat(text);
+                            // 57.0は斤量なので除外
+                            if (o >= 1.0 && o <= 999.0 && o !== 57.0 && o !== 56.0 && o !== 55.0 && o !== 54.0) {
+                                odds = o;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    console.log(`Horse ${num}: ${name}, ${jockey}, ${odds}倍`);
                     
                     horses.push({
                         number: num,
@@ -211,11 +185,14 @@
                         odds: odds
                     });
                 } catch (err) {
-                    console.error(`Error parsing row ${idx}:`, err);
+                    console.error(`Row ${idx} error:`, err);
                 }
             });
             
-            console.log(`Total horses parsed: ${horses.length}`);
+            // 馬番でソート
+            horses.sort((a, b) => a.number - b.number);
+            
+            console.log(`Total: ${horses.length} horses`);
             
             return { raceName: name, location: loc, distance: dist, trackType: track, horses };
         }
