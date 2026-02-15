@@ -69,15 +69,22 @@
             status.innerHTML = '<div class="bg-blue-50 border-2 border-blue-300 rounded-lg p-3"><p class="text-blue-700 font-bold text-sm">🔄 データ取得中...</p></div>';
 
             try {
-                // 自前のAPIを使用（100%動作）
+                console.log('Fetching:', url);
                 const response = await fetch(`/api/proxy?url=${encodeURIComponent(url)}`);
                 
+                console.log('Response status:', response.status);
+                
                 if (!response.ok) {
-                    throw new Error('Failed to fetch');
+                    const errorData = await response.json();
+                    console.error('Error data:', errorData);
+                    throw new Error(JSON.stringify(errorData, null, 2));
                 }
                 
                 const html = await response.text();
+                console.log('HTML received, length:', html.length);
+                
                 raceData = parseHTML(html);
+                console.log('Parsed horses:', raceData.horses.length);
                 
                 if (raceData.horses.length > 0) {
                     status.innerHTML = '<div class="bg-green-50 border-2 border-green-300 rounded-lg p-3"><p class="text-green-700 font-bold text-sm">✅ 成功！</p></div>';
@@ -85,13 +92,17 @@
                     return;
                 }
                 
-                throw new Error('No horses found');
+                throw new Error('出走馬が見つかりませんでした');
             } catch (error) {
                 console.error('Error:', error);
                 status.innerHTML = `
                     <div class="bg-red-50 border-2 border-red-300 rounded-lg p-4">
                         <p class="text-red-700 font-bold mb-2">❌ データ取得に失敗しました</p>
-                        <p class="text-red-600 text-xs">URLを確認してもう一度試してください</p>
+                        <details class="text-xs text-red-600 mt-2">
+                            <summary class="cursor-pointer font-bold">詳細を見る</summary>
+                            <pre class="mt-2 p-2 bg-white rounded overflow-auto text-xs">${error.message}</pre>
+                        </details>
+                        <p class="text-red-600 text-xs mt-2">URLを確認してもう一度試してください</p>
                     </div>
                 `;
             }
