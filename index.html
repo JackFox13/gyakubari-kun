@@ -248,20 +248,18 @@
 
         async function predict() {
             if (!betType) {
-                document.getElementById('status').innerHTML = '<div class="bg-red-50 p-3 rounded"><p class="text-red-700 text-sm">賭け方を選択してください</p></div>';
+                const statusDiv = document.getElementById('status') || createStatusDiv();
+                statusDiv.innerHTML = '<div class="bg-red-50 p-3 rounded"><p class="text-red-700 text-sm">賭け方を選択してください</p></div>';
                 return;
             }
             
-            const statusDiv = document.getElementById('status') || (() => {
-                const div = document.createElement('div');
-                div.id = 'status';
-                app.appendChild(div);
-                return div;
-            })();
+            const statusDiv = document.getElementById('status') || createStatusDiv();
             
             statusDiv.innerHTML = '<div class="bg-blue-50 border-2 border-blue-300 rounded-lg p-4"><p class="text-blue-700 font-bold">🤖 AIが予想を分析中...</p><p class="text-xs text-blue-600 mt-1">騎手実力・距離適性・馬場状態などを総合的に判断しています</p></div>';
             
             try {
+                console.log('Sending prediction request...');
+                
                 // AI予想APIを呼び出し
                 const response = await fetch('/api/predict', {
                     method: 'POST',
@@ -279,11 +277,16 @@
                     })
                 });
                 
+                console.log('Response status:', response.status);
+                
                 if (!response.ok) {
-                    throw new Error('AI prediction failed');
+                    const errorData = await response.json();
+                    console.error('API error:', errorData);
+                    throw new Error(JSON.stringify(errorData, null, 2));
                 }
                 
                 const data = await response.json();
+                console.log('Predictions received:', data.predictions.length);
                 
                 // 馬番から馬の情報を取得
                 const recommendations = data.predictions.map(pred => ({
@@ -299,10 +302,21 @@
                 statusDiv.innerHTML = `
                     <div class="bg-red-50 border-2 border-red-300 rounded-lg p-4">
                         <p class="text-red-700 font-bold mb-2">❌ AI予想に失敗しました</p>
-                        <p class="text-red-600 text-xs">もう一度試してください</p>
+                        <details class="text-xs text-red-600 mt-2">
+                            <summary class="cursor-pointer font-bold mb-2">詳細を見る</summary>
+                            <pre class="mt-2 p-2 bg-white rounded overflow-auto text-xs max-h-40">${error.message}</pre>
+                        </details>
+                        <p class="text-red-600 text-xs mt-2">もう一度試してください</p>
                     </div>
                 `;
             }
+        }
+        
+        function createStatusDiv() {
+            const div = document.createElement('div');
+            div.id = 'status';
+            app.appendChild(div);
+            return div;
         }
 
         function showResults() {
