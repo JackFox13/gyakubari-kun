@@ -10,12 +10,24 @@ module.exports = async (req, res) => {
   try {
     const { horses, betType, mode, raceInfo } = req.body;
 
+    // APIキーの確認
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      console.error('ANTHROPIC_API_KEY is not set');
+      return res.status(500).json({ 
+        error: 'API key not configured',
+        details: 'Vercelの環境変数にANTHROPIC_API_KEYを設定してください'
+      });
+    }
+
+    console.log('Calling Claude API...');
+
     // Claude APIを使って予想
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'x-api-key': apiKey,
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
@@ -59,24 +71,42 @@ JSON形式のみで回答してください（説明文は不要）。`
       })
     });
 
+    console.log('API response status:', response.status);
+
     if (!response.ok) {
-      throw new Error('AI prediction failed');
+      const errorText = await response.text();
+      console.error('API error:', errorText);
+      return res.status(response.status).json({ 
+        error: 'AI API failed',
+        details: errorText
+      });
     }
 
     const data = await response.json();
+    console.log('API response received');
+    
     const content = data.content[0].text;
+    console.log('AI response:', content.substring(0, 200));
     
     // JSONを抽出
     const jsonMatch = content.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
-      throw new Error('Invalid AI response');
+      console.error('No JSON found in response');
+      return res.status(500).json({ 
+        error: 'Invalid AI response format',
+        details: content.substring(0, 500)
+      });
     }
 
     const predictions = JSON.parse(jsonMatch[0]);
+    console.log('Predictions parsed:', predictions.length);
     
     return res.status(200).json({ predictions });
   } catch (error) {
     console.error('Predict error:', error);
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ 
+      error: error.message,
+      stack: error.stack
+    });
   }
 };
