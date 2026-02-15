@@ -121,31 +121,29 @@
             const loc = data.match(/(東京|中山|京都|阪神|中京|新潟|福島|小倉|札幌|函館)/)?.[1] || '不明';
             
             const horses = [];
-            
-            // テーブル行を取得
-            let rows = doc.querySelectorAll('.Shutuba_Table tbody tr');
-            
-            if (rows.length === 0) {
-                rows = doc.querySelectorAll('table tbody tr');
-            }
+            const rows = doc.querySelectorAll('.Shutuba_Table tbody tr, table tbody tr');
             
             console.log(`Found ${rows.length} rows`);
             
             rows.forEach((row, idx) => {
                 try {
                     const cells = Array.from(row.querySelectorAll('td'));
-                    if (cells.length < 5) return; // データ不足
+                    if (cells.length < 5) return;
                     
-                    // 馬番を探す（最初の数字のセル）
+                    // 馬番を探す
                     let num = null;
-                    for (let i = 0; i < Math.min(3, cells.length); i++) {
-                        const text = cells[i].textContent.trim();
-                        const match = text.match(/^(\d+)$/);
-                        if (match) {
-                            const n = parseInt(match[1]);
-                            if (n >= 1 && n <= 30) {
-                                num = n;
-                                break;
+                    const umabanElem = row.querySelector('.Umaban');
+                    if (umabanElem) {
+                        num = parseInt(umabanElem.textContent.trim());
+                    } else {
+                        for (let i = 0; i < Math.min(3, cells.length); i++) {
+                            const text = cells[i].textContent.trim();
+                            if (/^\d+$/.test(text)) {
+                                const n = parseInt(text);
+                                if (n >= 1 && n <= 30) {
+                                    num = n;
+                                    break;
+                                }
                             }
                         }
                     }
@@ -154,33 +152,46 @@
                     
                     // 馬名
                     const nameElem = row.querySelector('a[href*="/horse/"]');
-                    const name = nameElem?.textContent?.trim() || `${num}番`;
+                    const horseName = nameElem?.textContent?.trim() || `${num}番`;
                     
                     // 騎手
                     const jockeyElem = row.querySelector('a[href*="/jockey/"]');
                     const jockey = jockeyElem?.textContent?.trim() || '未定';
                     
-                    // オッズ（2桁の数字.数字の形式、ただし57.0は除外）
+                    // オッズを探す（.Popularクラスまたは特定の位置）
                     let odds = 10.0;
-                    const oddsPattern = /^(\d{1,3}\.\d)$/;
                     
-                    for (const cell of cells) {
-                        const text = cell.textContent.trim();
-                        if (oddsPattern.test(text)) {
-                            const o = parseFloat(text);
-                            // 57.0は斤量なので除外
-                            if (o >= 1.0 && o <= 999.0 && o !== 57.0 && o !== 56.0 && o !== 55.0 && o !== 54.0) {
-                                odds = o;
-                                break;
+                    // 方法1: .Popularクラス
+                    const popularElem = row.querySelector('.Popular');
+                    if (popularElem) {
+                        const oddsText = popularElem.textContent.trim();
+                        const oddsMatch = oddsText.match(/(\d+\.\d+)/);
+                        if (oddsMatch) {
+                            odds = parseFloat(oddsMatch[1]);
+                        }
+                    }
+                    
+                    // 方法2: セルを順番に探す（斤量を除外）
+                    if (odds === 10.0) {
+                        const weightValues = [54.0, 55.0, 56.0, 57.0, 58.0]; // 除外する斤量
+                        
+                        for (const cell of cells) {
+                            const text = cell.textContent.trim();
+                            if (/^\d+\.\d+$/.test(text)) {
+                                const value = parseFloat(text);
+                                if (value >= 1.0 && value <= 999.0 && !weightValues.includes(value)) {
+                                    odds = value;
+                                    break;
+                                }
                             }
                         }
                     }
                     
-                    console.log(`Horse ${num}: ${name}, ${jockey}, ${odds}倍`);
+                    console.log(`Horse ${num}: ${horseName}, ${jockey}, odds=${odds}`);
                     
                     horses.push({
                         number: num,
-                        name: name,
+                        name: horseName,
                         jockey: jockey,
                         odds: odds
                     });
@@ -189,9 +200,7 @@
                 }
             });
             
-            // 馬番でソート
             horses.sort((a, b) => a.number - b.number);
-            
             console.log(`Total: ${horses.length} horses`);
             
             return { raceName: name, location: loc, distance: dist, trackType: track, horses };
@@ -213,63 +222,147 @@
                     <div class="grid grid-cols-2 gap-3">
                         <button onclick="mode='normal';render()" class="${mode==='normal'?'bg-gradient-to-r from-blue-500 to-cyan-500 text-white':'bg-white/80'} p-5 rounded-xl font-bold">
                             <div class="text-3xl">🎯</div><div class="text-sm">堅実</div>
+                            <div class="text-xs mt-1 opacity-80">的中重視</div>
                         </button>
                         <button onclick="mode='gyakubari';render()" class="${mode==='gyakubari'?'bg-gradient-to-r from-pink-500 to-red-500 text-white':'bg-white/80'} p-5 rounded-xl font-bold">
                             <div class="text-3xl">💣</div><div class="text-sm">ギャクバリ君</div>
+                            <div class="text-xs mt-1 opacity-80">大穴一攫千金</div>
                         </button>
                     </div>
                     <div class="bg-white/95 rounded-xl shadow-xl p-5">
                         <h2 class="text-lg font-bold mb-3">🎲 賭け方</h2>
                         <div class="grid grid-cols-2 gap-2">
-                            <button onclick="betType='tansho';predict()" class="p-4 bg-white border-2 rounded-lg font-bold">単勝</button>
-                            <button onclick="betType='fukusho';predict()" class="p-4 bg-white border-2 rounded-lg font-bold">複勝</button>
-                            <button onclick="betType='umaren';predict()" class="p-4 bg-white border-2 rounded-lg font-bold">馬連</button>
-                            <button onclick="betType='sanrenpuku';predict()" class="p-4 bg-white border-2 rounded-lg font-bold">三連複</button>
+                            <button onclick="betType='tansho';predict()" class="p-4 bg-white border-2 rounded-lg font-bold hover:bg-purple-50">単勝</button>
+                            <button onclick="betType='fukusho';predict()" class="p-4 bg-white border-2 rounded-lg font-bold hover:bg-purple-50">複勝</button>
+                            <button onclick="betType='umaren';predict()" class="p-4 bg-white border-2 rounded-lg font-bold hover:bg-purple-50">馬連</button>
+                            <button onclick="betType='wide';predict()" class="p-4 bg-white border-2 rounded-lg font-bold hover:bg-purple-50">ワイド</button>
+                            <button onclick="betType='umatan';predict()" class="p-4 bg-white border-2 rounded-lg font-bold hover:bg-purple-50">馬単</button>
+                            <button onclick="betType='sanrenpuku';predict()" class="p-4 bg-white border-2 rounded-lg font-bold hover:bg-purple-50">三連複</button>
+                            <button onclick="betType='sanrentan';predict()" class="p-4 bg-white border-2 rounded-lg font-bold hover:bg-purple-50">三連単</button>
                         </div>
                     </div>
+                    <div id="status"></div>
                 </div>
             `;
         }
 
-        function predict() {
-            const scored = raceData.horses.map(h => {
-                let s = Math.max(0, 100 - h.odds * 3);
-                if (['武豊','川田','ルメール','福永','戸崎','横山武','デムーロ','松山','岩田','津村','北村友','菅原明','石橋','キング'].some(j => h.jockey.includes(j))) s += 25;
-                return {...h, score: Math.round(s)};
-            }).sort((a,b) => b.score - a.score);
+        async function predict() {
+            if (!betType) {
+                document.getElementById('status').innerHTML = '<div class="bg-red-50 p-3 rounded"><p class="text-red-700 text-sm">賭け方を選択してください</p></div>';
+                return;
+            }
             
-            predictions = {horses: scored.slice(0,3), mode};
-            render();
+            const statusDiv = document.getElementById('status') || (() => {
+                const div = document.createElement('div');
+                div.id = 'status';
+                app.appendChild(div);
+                return div;
+            })();
+            
+            statusDiv.innerHTML = '<div class="bg-blue-50 border-2 border-blue-300 rounded-lg p-4"><p class="text-blue-700 font-bold">🤖 AIが予想を分析中...</p><p class="text-xs text-blue-600 mt-1">騎手実力・距離適性・馬場状態などを総合的に判断しています</p></div>';
+            
+            try {
+                // AI予想APIを呼び出し
+                const response = await fetch('/api/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        horses: raceData.horses,
+                        betType: betType,
+                        mode: mode,
+                        raceInfo: {
+                            raceName: raceData.raceName,
+                            location: raceData.location,
+                            distance: raceData.distance,
+                            trackType: raceData.trackType
+                        }
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('AI prediction failed');
+                }
+                
+                const data = await response.json();
+                
+                // 馬番から馬の情報を取得
+                const recommendations = data.predictions.map(pred => ({
+                    ...pred,
+                    horses: pred.horses.map(num => raceData.horses.find(h => h.number === num)).filter(h => h)
+                }));
+                
+                predictions = { mode, betType, recommendations };
+                statusDiv.remove();
+                render();
+            } catch (error) {
+                console.error('Prediction error:', error);
+                statusDiv.innerHTML = `
+                    <div class="bg-red-50 border-2 border-red-300 rounded-lg p-4">
+                        <p class="text-red-700 font-bold mb-2">❌ AI予想に失敗しました</p>
+                        <p class="text-red-600 text-xs">もう一度試してください</p>
+                    </div>
+                `;
+            }
         }
 
         function showResults() {
             const e = mode==='gyakubari'?'💣':'🎯';
+            const betTypeLabel = betTypes.find(b => b.value === predictions.betType)?.label || '馬券';
+            
             app.innerHTML = `
                 <div class="space-y-4">
                     <button onclick="predictions=null;betType='';render()" class="text-white font-bold underline">← 戻る</button>
+                    
                     <div class="bg-white/95 rounded-xl shadow-xl p-5">
-                        <h2 class="text-xl font-bold mb-3">${e} おすすめ馬券</h2>
-                        ${predictions.horses.map((h,i) => `
-                            <div class="border-4 ${['border-yellow-400 bg-yellow-50','border-blue-400 bg-blue-50','border-green-400 bg-green-50'][i]} rounded-lg p-4 mb-3">
-                                <div class="flex justify-between mb-2">
-                                    <div class="text-2xl font-black">${['◎本命','○対抗','▲穴'][i]}</div>
-                                    <div class="text-right"><div class="text-xs text-gray-600">的中率</div>
-                                    <div class="text-2xl font-black text-green-600">${mode==='gyakubari'?(30-i*7):(70-i*12)}%</div></div>
-                                </div>
-                                <div class="bg-white border-4 border-purple-600 px-8 py-4 rounded-lg inline-block mb-3">
-                                    <span class="text-4xl font-black text-purple-600">${h.number}</span>
-                                </div>
-                                <div class="bg-white/90 p-3 rounded">
-                                    <div class="flex justify-between">
-                                        <div><div class="font-bold">${h.number} ${h.name}</div>
-                                        <div class="text-sm text-gray-600">${h.jockey}</div></div>
-                                        <div class="text-right"><div class="text-xs text-gray-600">オッズ</div>
-                                        <div class="text-red-600 font-black text-xl">${h.odds}倍</div></div>
+                        <h2 class="text-xl font-bold mb-2">${e} ${betTypeLabel}のおすすめ</h2>
+                        <div class="text-sm text-gray-600 mb-3">${raceData.raceName}</div>
+                        
+                        ${predictions.recommendations.map((rec, i) => `
+                            <div class="border-4 ${['border-yellow-400 bg-yellow-50','border-blue-400 bg-blue-50','border-green-400 bg-green-50'][i] || 'border-gray-400 bg-gray-50'} rounded-lg p-4 mb-3">
+                                <div class="flex justify-between items-center mb-3">
+                                    <div class="text-xl font-black">${rec.title}</div>
+                                    <div class="text-right">
+                                        <div class="text-xs text-gray-600">的中率</div>
+                                        <div class="text-2xl font-black text-green-600">${rec.confidence}%</div>
                                     </div>
+                                </div>
+                                
+                                <div class="flex flex-wrap gap-2 mb-3">
+                                    ${rec.horses.map(h => `
+                                        <div class="bg-white border-4 border-purple-600 px-6 py-3 rounded-lg">
+                                            <span class="text-3xl font-black text-purple-600">${h.number}</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                                
+                                <div class="space-y-2 mb-3">
+                                    ${rec.horses.map(h => `
+                                        <div class="bg-white/90 p-2 rounded text-sm">
+                                            <div class="flex justify-between items-center">
+                                                <div>
+                                                    <span class="font-bold">${h.number}</span>
+                                                    <span class="ml-2">${h.name}</span>
+                                                    <span class="text-gray-600 ml-2 text-xs">${h.jockey}</span>
+                                                </div>
+                                                <div class="font-bold text-red-600">${h.odds}倍</div>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                                
+                                <div class="bg-white/90 p-3 rounded mb-2">
+                                    <div class="text-xs font-bold text-gray-600 mb-1">💡 買い目</div>
+                                    <div class="text-sm font-bold">${rec.reasoning}</div>
+                                </div>
+                                
+                                <div class="flex justify-between items-center">
+                                    <span class="text-sm font-bold text-gray-700">期待回収率</span>
+                                    <span class="text-2xl font-black text-blue-600">${rec.expectedReturn}%</span>
                                 </div>
                             </div>
                         `).join('')}
                     </div>
+                    
                     <div class="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-lg">
                         <p class="text-xs font-bold text-yellow-900 mb-1">⚠️ 重要</p>
                         <ul class="text-xs text-yellow-900 space-y-1">
