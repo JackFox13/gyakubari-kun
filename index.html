@@ -110,38 +110,112 @@
 
         function parseHTML(html) {
             const doc = new DOMParser().parseFromString(html, 'text/html');
+            
+            // レース名
             const name = doc.querySelector('.RaceName')?.textContent?.trim() || '不明';
+            
+            // レース情報
             const data = (doc.querySelector('.RaceData01')?.textContent || '') + (doc.querySelector('.RaceData02')?.textContent || '');
             const dist = data.match(/(\d{3,4})m/)?.[1] || '2000';
             const track = data.includes('ダ') ? 'ダート' : '芝';
             const loc = data.match(/(東京|中山|京都|阪神|中京|新潟|福島|小倉|札幌|函館)/)?.[1] || '不明';
             
             const horses = [];
-            doc.querySelectorAll('.Shutuba_Table tbody tr, table tbody tr').forEach(row => {
-                const numElem = row.querySelector('.Umaban');
-                if (!numElem) return;
-                const num = parseInt(numElem.textContent);
-                if (!num || num < 1 || num > 30) return;
-                
-                const nameElem = row.querySelector('a[href*="/horse/"]');
-                const jockeyElem = row.querySelector('a[href*="/jockey/"]');
-                
-                let odds = 10.0;
-                row.querySelectorAll('td').forEach(cell => {
-                    const t = cell.textContent.trim();
-                    if (/^\d+\.\d+$/.test(t)) {
-                        const o = parseFloat(t);
-                        if (o >= 1.0 && o <= 999.0) odds = o;
+            
+            // 複数のセレクタパターンを試行
+            let rows = doc.querySelectorAll('.Shutuba_Table tbody tr');
+            console.log('Shutuba_Table rows:', rows.length);
+            
+            if (rows.length === 0) {
+                rows = doc.querySelectorAll('table.race_table_01 tbody tr');
+                console.log('race_table_01 rows:', rows.length);
+            }
+            
+            if (rows.length === 0) {
+                rows = doc.querySelectorAll('.HorseList tbody tr');
+                console.log('HorseList rows:', rows.length);
+            }
+            
+            if (rows.length === 0) {
+                rows = doc.querySelectorAll('table tbody tr');
+                console.log('Generic table rows:', rows.length);
+            }
+            
+            rows.forEach((row, idx) => {
+                try {
+                    // パターン1: .Umaban
+                    let numElem = row.querySelector('.Umaban');
+                    
+                    // パターン2: .Waku (枠番と馬番が一緒にある場合)
+                    if (!numElem) {
+                        numElem = row.querySelector('.Waku');
                     }
-                });
-                
-                horses.push({
-                    number: num,
-                    name: nameElem?.textContent?.trim().replace(/\s+/g, '') || `${num}番`,
-                    jockey: jockeyElem?.textContent?.trim().replace(/\s+/g, '') || '未定',
-                    odds: odds
-                });
+                    
+                    // パターン3: 最初のtdから数字を探す
+                    if (!numElem) {
+                        const firstTd = row.querySelector('td');
+                        if (firstTd && /^\d+$/.test(firstTd.textContent.trim())) {
+                            numElem = firstTd;
+                        }
+                    }
+                    
+                    if (!numElem) {
+                        console.log(`Row ${idx}: No number element found`);
+                        return;
+                    }
+                    
+                    const numText = numElem.textContent.trim();
+                    const num = parseInt(numText.match(/\d+/)?.[0]);
+                    
+                    if (!num || num < 1 || num > 30) {
+                        console.log(`Row ${idx}: Invalid number ${num}`);
+                        return;
+                    }
+                    
+                    // 馬名を探す
+                    let nameElem = row.querySelector('a[href*="/horse/"]');
+                    if (!nameElem) {
+                        nameElem = row.querySelector('.Horse_Name a, .HorseName a');
+                    }
+                    
+                    const name = nameElem?.textContent?.trim().replace(/\s+/g, '') || `${num}番`;
+                    
+                    // 騎手を探す
+                    let jockeyElem = row.querySelector('a[href*="/jockey/"]');
+                    if (!jockeyElem) {
+                        jockeyElem = row.querySelector('.Jockey a');
+                    }
+                    
+                    const jockey = jockeyElem?.textContent?.trim().replace(/\s+/g, '') || '未定';
+                    
+                    // オッズを探す
+                    let odds = 10.0;
+                    const cells = row.querySelectorAll('td');
+                    cells.forEach(cell => {
+                        const t = cell.textContent.trim();
+                        // オッズは数字.数字の形式
+                        if (/^\d+\.\d+$/.test(t)) {
+                            const o = parseFloat(t);
+                            if (o >= 1.0 && o <= 999.0) {
+                                odds = o;
+                            }
+                        }
+                    });
+                    
+                    console.log(`Parsed horse ${num}: ${name}, ${jockey}, ${odds}`);
+                    
+                    horses.push({
+                        number: num,
+                        name: name,
+                        jockey: jockey,
+                        odds: odds
+                    });
+                } catch (err) {
+                    console.error(`Error parsing row ${idx}:`, err);
+                }
             });
+            
+            console.log(`Total horses parsed: ${horses.length}`);
             
             return { raceName: name, location: loc, distance: dist, trackType: track, horses };
         }
