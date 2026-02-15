@@ -27,8 +27,9 @@ module.exports = async (req, res) => {
       return res.status(response.status).json({ error: 'Failed to fetch' });
     }
 
-    // バイナリで取得
-    const buffer = await response.buffer();
+    // ArrayBufferとして取得
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
     
     // EUC-JPからUTF-8に変換
     const html = iconv.decode(buffer, 'EUC-JP');
